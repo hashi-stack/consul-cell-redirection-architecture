@@ -1,0 +1,196 @@
+apiVersion: consul.hashicorp.com/v1alpha1
+kind: ServiceDefaults
+metadata:
+  name: service-a
+spec:
+  protocol: http
+---
+apiVersion: consul.hashicorp.com/v1alpha1
+kind: ServiceDefaults
+metadata:
+  name: service-b
+spec:
+  protocol: http
+---
+apiVersion: consul.hashicorp.com/v1alpha1
+kind: ServiceDefaults
+metadata:
+  name: service-c
+spec:
+  protocol: http
+  # ext-proc runs on service-c's OUTBOUND listener toward service-d2.
+  # This lets ext-proc-grpc inject the x-cell header into the upstream
+  # request before it leaves service-c's sidecar, so the Consul
+  # ServiceRouter for service-d2 can match on it.
+  envoyExtensions:
+    - name: builtin/ext-proc
+      required: true
+      arguments:
+        proxyType: connect-proxy
+        listenerType: outbound
+        config:
+          grpcService:
+            target:
+              service:
+                name: ext-proc-grpc
+---
+apiVersion: consul.hashicorp.com/v1alpha1
+kind: ServiceDefaults
+metadata:
+  name: service-d1
+spec:
+  protocol: http
+---
+apiVersion: consul.hashicorp.com/v1alpha1
+kind: ServiceDefaults
+metadata:
+  name: service-d2
+spec:
+  protocol: http
+---
+apiVersion: consul.hashicorp.com/v1alpha1
+kind: ServiceDefaults
+metadata:
+  name: route-decider
+spec:
+  protocol: http
+---
+apiVersion: consul.hashicorp.com/v1alpha1
+kind: ServiceDefaults
+metadata:
+  name: ext-proc-grpc
+spec:
+  protocol: grpc
+---
+# api-gateway service-defaults: wires the gRPC ext-proc filter on the
+# api-gateway inbound listener.  ext-proc-grpc sets the x-cell header so
+# cell-route (HTTPRoute) can forward to service-a or service-b.
+#
+# NOTE: port must be specified explicitly here.  Unlike connect-proxy sidecars
+# (which already have an outbound cluster for every upstream), the api-gateway
+# Envoy has no pre-built outbound cluster for ext-proc-grpc.  Without the port
+# Consul cannot construct the xDS cluster address and the filter is silently
+# skipped — traffic passes through without any x-cell header being injected.
+apiVersion: consul.hashicorp.com/v1alpha1
+kind: ServiceDefaults
+metadata:
+  name: api-gateway
+spec:
+  protocol: http
+  envoyExtensions:
+    - name: builtin/ext-proc
+      required: true
+      arguments:
+        proxyType: api-gateway
+        listenerType: inbound
+        config:
+          routeCacheAction: CLEAR
+          grpcService:
+            target:
+              service:
+                name: ext-proc-grpc
+                port: "50051"
+---
+# ServiceRouter for service-d2: route based on the x-cell header that
+# service-c's ext-proc sidecar sets on the outbound call.
+# x-cell=C → service-d1; x-cell=D → service-d2 (default instances).
+apiVersion: consul.hashicorp.com/v1alpha1
+kind: ServiceRouter
+metadata:
+  name: service-d2
+spec:
+  routes:
+    - match:
+        http:
+          header:
+            - name: x-cell
+              exact: C
+      destination:
+        service: service-d1
+    - match:
+        http:
+          header:
+            - name: x-cell
+              exact: D
+      destination:
+        service: service-d2
+---
+# ── Intentions ────────────────────────────────────────────────────────────────
+apiVersion: consul.hashicorp.com/v1alpha1
+kind: ServiceIntentions
+metadata:
+  name: service-a-intentions
+spec:
+  destination:
+    name: service-a
+  sources:
+    - name: api-gateway
+      action: allow
+---
+apiVersion: consul.hashicorp.com/v1alpha1
+kind: ServiceIntentions
+metadata:
+  name: service-b-intentions
+spec:
+  destination:
+    name: service-b
+  sources:
+    - name: api-gateway
+      action: allow
+---
+apiVersion: consul.hashicorp.com/v1alpha1
+kind: ServiceIntentions
+metadata:
+  name: service-c-intentions
+spec:
+  destination:
+    name: service-c
+  sources:
+    - name: api-gateway
+      action: allow
+---
+apiVersion: consul.hashicorp.com/v1alpha1
+kind: ServiceIntentions
+metadata:
+  name: service-d1-intentions
+spec:
+  destination:
+    name: service-d1
+  sources:
+    - name: service-c
+      action: allow
+---
+apiVersion: consul.hashicorp.com/v1alpha1
+kind: ServiceIntentions
+metadata:
+  name: service-d2-intentions
+spec:
+  destination:
+    name: service-d2
+  sources:
+    - name: service-c
+      action: allow
+---
+apiVersion: consul.hashicorp.com/v1alpha1
+kind: ServiceIntentions
+metadata:
+  name: route-decider-intentions
+spec:
+  destination:
+    name: route-decider
+  sources:
+    - name: ext-proc-grpc
+      action: allow
+---
+apiVersion: consul.hashicorp.com/v1alpha1
+kind: ServiceIntentions
+metadata:
+  name: ext-proc-grpc-intentions
+spec:
+  destination:
+    name: ext-proc-grpc
+  sources:
+    - name: api-gateway
+      action: allow
+    - name: service-c
+      action: allow

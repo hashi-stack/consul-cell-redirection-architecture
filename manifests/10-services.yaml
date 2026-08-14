@@ -1,0 +1,316 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: service-a
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: service-a
+  labels:
+    app: service-a
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: service-a
+  template:
+    metadata:
+      labels:
+        app: service-a
+      annotations:
+        consul.hashicorp.com/connect-inject: "true"
+        consul.hashicorp.com/transparent-proxy: "true"
+        consul.hashicorp.com/consul-dns: "true"
+        # Consul deregistration timeout — tells consul-dataplane to deregister
+        # this pod from the Consul catalog quickly on shutdown so Envoy EDS
+        # is updated before the TCP port closes.  Without this, Envoy keeps
+        # the endpoint as HEALTHY for ~10-30 s and sends traffic into the void.
+        consul.hashicorp.com/consul-write-interval: "1s"
+    spec:
+      serviceAccountName: service-a
+      # terminationGracePeriodSeconds must be > the time needed for:
+      #   1. preStop sleep (5 s) — lets Consul deregister + EDS propagate
+      #   2. in-flight request drain
+      terminationGracePeriodSeconds: 15
+      containers:
+        - name: service-a
+          image: nicholasjackson/fake-service:v0.26.2
+          env:
+            - name: NAME
+              value: service-a
+            - name: MESSAGE
+              value: "hello from service-a"
+            - name: LISTEN_ADDR
+              value: "0.0.0.0:9090"
+            - name: LOG_LEVEL
+              value: "debug"
+            - name: HTTP_CLIENT_APPEND_REQUEST
+              value: "true"
+          ports:
+            - containerPort: 9090
+          lifecycle:
+            preStop:
+              # Sleep 5 s before the app exits.  This window allows:
+              #   - consul-dataplane to deregister the service in Consul
+              #   - Consul to push an EDS update removing this endpoint
+              #   - Envoy to receive the update and stop routing to this pod
+              # Without this gap, the pod's port closes before Envoy knows
+              # it is gone, causing ECONNREFUSED on in-flight requests.
+              exec:
+                command: ["/bin/sh", "-c", "sleep 5"]
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: service-b
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: service-b
+  labels:
+    app: service-b
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: service-b
+  template:
+    metadata:
+      labels:
+        app: service-b
+      annotations:
+        consul.hashicorp.com/connect-inject: "true"
+        consul.hashicorp.com/transparent-proxy: "true"
+        consul.hashicorp.com/consul-dns: "true"
+    spec:
+      serviceAccountName: service-b
+      containers:
+        - name: service-b
+          image: nicholasjackson/fake-service:v0.26.2
+          env:
+            - name: NAME
+              value: service-b
+            - name: MESSAGE
+              value: "hello from service-b"
+            - name: LISTEN_ADDR
+              value: "0.0.0.0:9090"
+            - name: LOG_LEVEL
+              value: "debug"
+            - name: HTTP_CLIENT_APPEND_REQUEST
+              value: "true"
+          ports:
+            - containerPort: 9090
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: service-c
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: service-c
+  labels:
+    app: service-c
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: service-c
+  template:
+    metadata:
+      labels:
+        app: service-c
+      annotations:
+        consul.hashicorp.com/connect-inject: "true"
+        consul.hashicorp.com/transparent-proxy: "true"
+        consul.hashicorp.com/consul-dns: "true"
+    spec:
+      serviceAccountName: service-c
+      containers:
+        - name: service-c
+          image: nicholasjackson/fake-service:v0.26.2
+          env:
+            - name: NAME
+              value: service-c
+            - name: MESSAGE
+              value: "hello from service-c"
+            - name: LISTEN_ADDR
+              value: "0.0.0.0:9090"
+            - name: LOG_LEVEL
+              value: "debug"
+            - name: HTTP_CLIENT_APPEND_REQUEST
+              value: "true"
+            # service-c calls service-d2; the ServiceRouter on service-d2 then
+            # routes the request to service-d1 or service-d2 based on x-cell.
+            - name: UPSTREAM_URIS
+              value: "http://service-d2.virtual.consul:9090"
+          ports:
+            - containerPort: 9090
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: service-d1
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: service-d1
+  labels:
+    app: service-d1
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: service-d1
+  template:
+    metadata:
+      labels:
+        app: service-d1
+      annotations:
+        consul.hashicorp.com/connect-inject: "true"
+        consul.hashicorp.com/transparent-proxy: "true"
+        consul.hashicorp.com/consul-dns: "true"
+    spec:
+      serviceAccountName: service-d1
+      containers:
+        - name: service-d1
+          image: nicholasjackson/fake-service:v0.26.2
+          env:
+            - name: NAME
+              value: service-d1
+            - name: MESSAGE
+              value: "hello from service-d1"
+            - name: LISTEN_ADDR
+              value: "0.0.0.0:9090"
+            - name: LOG_LEVEL
+              value: "debug"
+            - name: HTTP_CLIENT_APPEND_REQUEST
+              value: "true"
+          ports:
+            - containerPort: 9090
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: service-d2
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: service-d2
+  labels:
+    app: service-d2
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: service-d2
+  template:
+    metadata:
+      labels:
+        app: service-d2
+      annotations:
+        consul.hashicorp.com/connect-inject: "true"
+        consul.hashicorp.com/transparent-proxy: "true"
+        consul.hashicorp.com/consul-dns: "true"
+    spec:
+      serviceAccountName: service-d2
+      containers:
+        - name: service-d2
+          image: nicholasjackson/fake-service:v0.26.2
+          env:
+            - name: NAME
+              value: service-d2
+            - name: MESSAGE
+              value: "hello from service-d2"
+            - name: LISTEN_ADDR
+              value: "0.0.0.0:9090"
+            - name: LOG_LEVEL
+              value: "debug"
+            - name: HTTP_CLIENT_APPEND_REQUEST
+              value: "true"
+          ports:
+            - containerPort: 9090
+---
+# Kubernetes Services for every mesh backend. Consul connect-inject only
+# registers a pod into the mesh when a matching Service (with endpoints)
+# exists; without these the connect-init container blocks on
+# "Unable to find registered services" and the Deployment never becomes ready.
+apiVersion: v1
+kind: Service
+metadata:
+  name: service-a
+  labels:
+    app: service-a
+spec:
+  selector:
+    app: service-a
+  ports:
+    - name: http
+      port: 9090
+      targetPort: 9090
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: service-b
+  labels:
+    app: service-b
+spec:
+  selector:
+    app: service-b
+  ports:
+    - name: http
+      port: 9090
+      targetPort: 9090
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: service-c
+  labels:
+    app: service-c
+spec:
+  selector:
+    app: service-c
+  ports:
+    - name: http
+      port: 9090
+      targetPort: 9090
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: service-d1
+  labels:
+    app: service-d1
+spec:
+  selector:
+    app: service-d1
+  ports:
+    - name: http
+      port: 9090
+      targetPort: 9090
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: service-d2
+  labels:
+    app: service-d2
+spec:
+  selector:
+    app: service-d2
+  ports:
+    - name: http
+      port: 9090
+      targetPort: 9090
+      protocol: TCP

@@ -1,0 +1,7 @@
+config/consul-enterprise-license.hclic
+.env
+.env.local
+*.key
+*.pem
+*.crt
+config_dump.json

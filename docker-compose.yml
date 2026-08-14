@@ -1,0 +1,97 @@
+---
+# docker-compose.yml
+# Runs two Consul server containers (dc1 at :8500, dc2 at :8501) on the
+# shared "kind" Docker network so kind nodes can reach them.
+#
+# Prerequisites:
+#   1. A valid Consul Enterprise license must exist at:
+#        ./config/consul-enterprise-license.hclic
+#      (up.sh passes the same file to the k8s secret bootstrap).
+#   2. The "kind" Docker network must exist before docker-compose up.
+#      up.sh creates it automatically.
+#   3. Run patch-consul-ent.sh (or 'make dev-docker' in the consul-enterprise
+#      repo) to produce the hashicorp/consul-enterprise:local image before
+#      starting this stack.
+#
+# DC1 Consul server: 172.18.5.2  HTTP :8500  gRPC :8502
+# DC2 Consul server: 172.18.5.3  HTTP :8501  gRPC :8503 (host) → :8502 (container plain gRPC)
+
+version: "3.8"
+
+services:
+
+  consul-dc1:
+    container_name: consul-server-dc1
+    # image: hashicorp/consul-enterprise:2.0.2-ent
+    image: hashicorp/consul-enterprise:local
+    environment:
+      - CONSUL_LICENSE_PATH=/consul/config/consul-enterprise-license.hclic
+    volumes:
+      - ./config/consul-enterprise-license.hclic:/consul/config/consul-enterprise-license.hclic:ro
+    command:
+      - "agent"
+      - "-server"
+      - "-bootstrap-expect=1"
+      - "-datacenter=dc1"
+      - "-bind=0.0.0.0"
+      - "-advertise=172.18.5.2"
+      - "-client=0.0.0.0"
+      - "-ui"
+      - "-hcl"
+      - |
+        acl {
+          enabled = true
+          default_policy = "deny"
+          enable_token_persistence = true
+          tokens {
+            initial_management = "e95b599e-166e-7d80-08ad-aee76e7ddf19"
+          }
+        }
+        ports { grpc = 8502 }
+        connect { enabled = true }
+        peering { enabled = true }
+    ports:
+      - "8500:8500"
+    networks:
+      kind_network:
+        ipv4_address: 172.18.5.2
+
+  consul-dc2:
+    container_name: consul-server-dc2
+    image: hashicorp/consul-enterprise:local
+    environment:
+      - CONSUL_LICENSE_PATH=/consul/config/consul-enterprise-license.hclic
+    volumes:
+      - ./config/consul-enterprise-license.hclic:/consul/config/consul-enterprise-license.hclic:ro
+    command:
+      - "agent"
+      - "-server"
+      - "-bootstrap-expect=1"
+      - "-datacenter=dc2"
+      - "-bind=0.0.0.0"
+      - "-advertise=172.18.5.3"
+      - "-client=0.0.0.0"
+      - "-ui"
+      - "-hcl"
+      - |
+        acl {
+          enabled = true
+          default_policy = "deny"
+          enable_token_persistence = true
+          tokens {
+            initial_management = "e95b599e-166e-7d80-08ad-aee76e7ddf19"
+          }
+        }
+        ports { grpc = 8502 }
+        connect { enabled = true }
+        peering { enabled = true }
+    ports:
+      - "8501:8500"
+    networks:
+      kind_network:
+        ipv4_address: 172.18.5.3
+
+networks:
+  kind_network:
+    name: kind   # Must match the Docker network created by kind / up.sh
+    external: true

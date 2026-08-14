@@ -1,0 +1,92 @@
+# MeshService objects — Consul-native backend references.
+# Using group: consul.hashicorp.com / kind: MeshService in HTTPRoute backendRefs
+# tells the consul-k8s-control-plane to resolve the backend through the Consul
+# catalog discovery chain instead of validating against live Kubernetes Endpoints.
+#
+# Without this, when a Deployment is scaled to 0 the controller marks the route
+# rule "backend not found" and REMOVES it from the Consul http-route entirely —
+# so x-cell=A has no match and falls through to service-c instead of failing
+# over to the DC2 peer via the ServiceResolver.  MeshService bypasses that
+# k8s-endpoint check and keeps the route rule present at all times.
+apiVersion: consul.hashicorp.com/v1alpha1
+kind: MeshService
+metadata:
+  name: mesh-service-a
+  namespace: default
+spec:
+  name: service-a
+---
+apiVersion: consul.hashicorp.com/v1alpha1
+kind: MeshService
+metadata:
+  name: mesh-service-b
+  namespace: default
+spec:
+  name: service-b
+---
+apiVersion: consul.hashicorp.com/v1alpha1
+kind: MeshService
+metadata:
+  name: mesh-service-c
+  namespace: default
+spec:
+  name: service-c
+---
+# Single HTTPRoute on api-gateway so all rules share one Envoy virtual-host
+# route table and are evaluated in strict top-to-bottom order.
+#
+# WHY one HTTPRoute instead of two:
+#   After ext-proc injects x-cell and sets ClearRouteCache=true, Envoy
+#   re-evaluates the route table for this listener.  When the header-match
+#   rules (x-cell=A / x-cell=B) live in a *separate* HTTPRoute from the
+#   catch-all (service-c-route), the Gateway controller may synthesise them
+#   as independent virtual-host route entries in unpredictable order.
+#   If the catch-all entry appears first in the xDS route config, it wins
+#   on the re-evaluation pass and the cell-based rules never fire.
+#
+#   A single HTTPRoute guarantees rule ordering:
+#     rule 0 (x-cell=A)  ← evaluated first
+#     rule 1 (x-cell=B)  ← evaluated second
+#     rule 2 (catch-all) ← only reached when neither header is present
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: HTTPRoute
+metadata:
+  name: cell-route
+  namespace: default
+spec:
+  parentRefs:
+    - name: api-gateway
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+          headers:
+            - name: x-cell
+              value: A
+      backendRefs:
+        - group: consul.hashicorp.com
+          kind: MeshService
+          name: mesh-service-a
+          port: 9090
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+          headers:
+            - name: x-cell
+              value: B
+      backendRefs:
+        - group: consul.hashicorp.com
+          kind: MeshService
+          name: mesh-service-b
+          port: 9090
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /
+      backendRefs:
+        - group: consul.hashicorp.com
+          kind: MeshService
+          name: mesh-service-c
+          port: 9090

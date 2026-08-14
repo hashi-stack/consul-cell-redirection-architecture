@@ -1,0 +1,26 @@
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+networking:
+  podSubnet: 10.244.0.0/16
+  serviceSubnet: 10.96.0.0/16
+  ipFamily: ipv4
+nodes:
+- role: control-plane
+  image: kindest/node:v1.35.0
+  extraPortMappings:
+  - containerPort: 6443
+    hostPort: 6443
+    protocol: TCP
+- role: worker
+  image: kindest/node:v1.35.0
+  extraPortMappings:
+  - containerPort: 30003
+    hostPort: 30003
+    protocol: TCP
+  # route-decider NodePort -> reachable on the Mac host at 127.0.0.1:30004
+  - containerPort: 30004
+    hostPort: 30004
+    protocol: TCP
+  - containerPort: 8222
+    hostPort: 9222
+    protocol: TCP

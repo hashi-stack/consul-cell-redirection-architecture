@@ -1,0 +1,106 @@
+# 20-ext-components-dc2.yaml
+# Deploys route-decider and ext-proc-grpc into dc2 as failover targets.
+# These use locally-built images (same as dc1) loaded into kind-dc2.
+#
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: route-decider
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: route-decider
+  labels:
+    app: route-decider
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: route-decider
+  template:
+    metadata:
+      labels:
+        app: route-decider
+      annotations:
+        consul.hashicorp.com/connect-inject: "true"
+        consul.hashicorp.com/transparent-proxy: "true"
+        consul.hashicorp.com/consul-dns: "true"
+    spec:
+      serviceAccountName: route-decider
+      containers:
+        - name: route-decider
+          image: local/route-decider:0.1
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ext-proc-grpc
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ext-proc-grpc
+  labels:
+    app: ext-proc-grpc
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ext-proc-grpc
+  template:
+    metadata:
+      labels:
+        app: ext-proc-grpc
+      annotations:
+        consul.hashicorp.com/connect-inject: "true"
+        consul.hashicorp.com/transparent-proxy: "true"
+        consul.hashicorp.com/consul-dns: "true"
+    spec:
+      serviceAccountName: ext-proc-grpc
+      containers:
+        - name: ext-proc-grpc
+          image: local/ext-proc-grpc:0.1
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: ROUTER_URL
+              value: http://route-decider.virtual.consul:8080/get-cell
+            - name: ROUTER_TIMEOUT_MS
+              value: "5000"
+          ports:
+            - name: grpc
+              containerPort: 50051
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: route-decider
+  labels:
+    app: route-decider
+spec:
+  selector:
+    app: route-decider
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ext-proc-grpc
+  labels:
+    app: ext-proc-grpc
+spec:
+  selector:
+    app: ext-proc-grpc
+  ports:
+    - name: grpc
+      port: 50051
+      targetPort: 50051
+      protocol: TCP

@@ -1,0 +1,155 @@
+# 50-failover-config.yaml
+# Applied AFTER cluster peering is established.
+#
+# DC1 side:
+#   - ProxyDefaults: meshGateway.mode=local mesh-wide.
+#   - ServiceDefaults for each backend: passiveHealthCheck via upstreamConfig.defaults
+#     so Envoy ejects a dead DC1 endpoint after 1 failure and immediately
+#     promotes to the failover-target~1 (DC2 peer) sub-cluster.
+#   - ServiceResolvers with failover targets pointing to dc2 peer for every
+#     backend service.  api-gateway is NOT in this list.
+#
+# ── Why passiveHealthCheck is needed ─────────────────────────────────────────
+# After `kubectl scale --replicas=0`, K8s kills the pod immediately but Consul
+# deregisters the health check only after its next probe cycle (~10-30 s).
+# Until EDS is updated Envoy still marks the stale endpoint HEALTHY, sends to
+# it, gets ECONNREFUSED, and never promotes to failover-target~1 (DC2).
+#
+# passiveHealthCheck.maxFailures=1 + maxEjectionPercent=100 causes Envoy to
+# eject the dead endpoint on the first failed request, emptying failover-target~0,
+# so the aggregate cluster immediately falls through to failover-target~1 (DC2).
+# baseEjectionTime=30s keeps it ejected long enough for Consul EDS to catch up.
+#
+# NOTE: passiveHealthCheck lives in ServiceDefaults.upstreamConfig.defaults,
+# NOT in ProxyDefaults.config (which only accepts Envoy bootstrap passthrough
+# keys like envoy_local_cluster_json — not outlier detection).
+#
+# ── DC1: ProxyDefaults (mesh-wide meshGateway) ────────────────────────────────
+---
+apiVersion: consul.hashicorp.com/v1alpha1
+kind: ProxyDefaults
+metadata:
+  name: global
+  namespace: default
+spec:
+  config:
+    protocol: http
+  meshGateway:
+    mode: local
+
+# NOTE: api-gateway ServiceDefaults is managed by 30-consul-config.yaml.
+# The passiveHealthCheck / upstreamConfig approach does NOT translate to
+# Envoy xDS for the api-gateway proxy type in consul-dataplane 2.0.0.
+# Failover for api-gateway upstreams is driven entirely by:
+#   1. ServiceResolver aggregate cluster (failover-target~0 + failover-target~1)
+#   2. Fast Consul catalog deregistration via preStop hook in 10-services.yaml
+#      (5 s sleep gives consul-dataplane time to push EDS update before TCP closes)
+# No additional ServiceDefaults entry for api-gateway is needed here.
+
+# ── DC1: ServiceResolvers — failover every backend to dc2 peer ────────────────
+# policy.mode must be a sibling of targets, not nested inside a target entry.
+---
+apiVersion: consul.hashicorp.com/v1alpha1
+kind: ServiceResolver
+metadata:
+  name: service-a
+  namespace: default
+spec:
+  failover:
+    "*":
+      policy:
+        mode: sequential
+      targets:
+        - peer: peer-dc2
+          service: service-a
+          namespace: default
+---
+apiVersion: consul.hashicorp.com/v1alpha1
+kind: ServiceResolver
+metadata:
+  name: service-b
+  namespace: default
+spec:
+  failover:
+    "*":
+      policy:
+        mode: sequential
+      targets:
+        - peer: peer-dc2
+          service: service-b
+          namespace: default
+---
+apiVersion: consul.hashicorp.com/v1alpha1
+kind: ServiceResolver
+metadata:
+  name: service-c
+  namespace: default
+spec:
+  failover:
+    "*":
+      policy:
+        mode: sequential
+      targets:
+        - peer: peer-dc2
+          service: service-c
+          namespace: default
+---
+apiVersion: consul.hashicorp.com/v1alpha1
+kind: ServiceResolver
+metadata:
+  name: service-d1
+  namespace: default
+spec:
+  failover:
+    "*":
+      policy:
+        mode: sequential
+      targets:
+        - peer: peer-dc2
+          service: service-d1
+          namespace: default
+---
+apiVersion: consul.hashicorp.com/v1alpha1
+kind: ServiceResolver
+metadata:
+  name: service-d2
+  namespace: default
+spec:
+  failover:
+    "*":
+      policy:
+        mode: sequential
+      targets:
+        - peer: peer-dc2
+          service: service-d2
+          namespace: default
+---
+apiVersion: consul.hashicorp.com/v1alpha1
+kind: ServiceResolver
+metadata:
+  name: route-decider
+  namespace: default
+spec:
+  failover:
+    "*":
+      policy:
+        mode: sequential
+      targets:
+        - peer: peer-dc2
+          service: route-decider
+          namespace: default
+---
+apiVersion: consul.hashicorp.com/v1alpha1
+kind: ServiceResolver
+metadata:
+  name: ext-proc-grpc
+  namespace: default
+spec:
+  failover:
+    "*":
+      policy:
+        mode: sequential
+      targets:
+        - peer: peer-dc2
+          service: ext-proc-grpc
+          namespace: default

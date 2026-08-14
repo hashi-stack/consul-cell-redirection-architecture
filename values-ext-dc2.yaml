@@ -1,0 +1,84 @@
+# values-ext-dc2.yaml
+# DC2 Helm values: connects to the same host-resident Consul server (dc2 datacenter).
+# No api-gateway — dc2 only runs the backend services (service-a through ext-proc-grpc)
+# as failover targets. A mesh gateway enables cross-cluster peering traffic.
+# The externalServers.hosts value and k8sAuthMethodHost are overridden at
+# helm install time by up.sh via --set.
+
+global:
+  enabled: true
+  name: consul
+  datacenter: dc2
+  image: "docker.mirror.hashicorp.services/hashicorppreview/consul:2.1.0-dev"
+  imageK8S: &consulK8sControlPlaneImage "docker.mirror.hashicorp.services/hashicorppreview/consul-k8s-control-plane:2.1.0-dev"
+  imageConsulDataplane: "hashicorp/consul-dataplane:2.0.0"
+  logLevel: "trace"
+  tls:
+    enabled: false
+
+  acls:
+    manageSystemACLs: true
+    bootstrapToken:
+      secretName: bootstrap-token
+      secretKey: token
+
+  enterpriseLicense:
+    secretName: consul-enterprise-license
+    secretKey: license
+    enableLicenseAutoload: true
+
+# No Consul server pod — server runs on the local host.
+server:
+  enabled: false
+
+# No client agents — consul-dataplane sidecars connect directly to the server.
+client:
+  enabled: false
+
+# Point consul-k8s components at the host-resident Consul server (dc2 port 8501).
+# hosts[0] and k8sAuthMethodHost are injected by up.sh at helm install time.
+# externalServers:
+#   enabled: true
+#   hosts:
+#     - "host.docker.internal"
+#   httpsPort: 8501
+#   grpcPort: 8503
+#   useSystemRoots: false
+#   k8sAuthMethodHost: "https://127.0.0.1:6444"
+externalServers:
+  enabled: true
+  hosts: ["ovveride"]
+  httpsPort: 8500
+  grpcPort: 8502
+  # httpsPort: 8501  # Commented out since TLS is disabled
+  useSystemRoots: false
+  k8sAuthMethodHost: "https://127.0.0.1:6444"
+
+dns:
+  enabled: true
+  enableRedirection: true
+
+connectInject:
+  enabled: true
+  image: *consulK8sControlPlaneImage
+  logLevel: "trace"
+  transparentProxy:
+    defaultEnabled: true
+
+# Mesh gateway enables cross-DC/cluster service failover over cluster peering.
+meshGateway:
+  enabled: true
+  replicas: 1
+  service:
+    type: NodePort
+    nodePort: 30443
+    port: 443
+
+# UI is served by the local Consul process.
+ui:
+  enabled: false
+
+crds:
+  enableTcpRoute: true
+  consulapi:
+    enabled: true

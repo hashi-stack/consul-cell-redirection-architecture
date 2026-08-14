@@ -1,0 +1,297 @@
+# 10-services-dc2.yaml
+# Deploys the same backend services into dc2 (the failover cluster).
+# api-gateway is intentionally omitted — dc2 only provides failover capacity.
+# All services use the same fake-service image and configuration as dc1.
+#
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: service-a
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: service-a
+  labels:
+    app: service-a
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: service-a
+  template:
+    metadata:
+      labels:
+        app: service-a
+      annotations:
+        consul.hashicorp.com/connect-inject: "true"
+        consul.hashicorp.com/transparent-proxy: "true"
+        consul.hashicorp.com/consul-dns: "true"
+    spec:
+      serviceAccountName: service-a
+      containers:
+        - name: service-a
+          image: nicholasjackson/fake-service:v0.26.2
+          env:
+            - name: NAME
+              value: service-a
+            - name: MESSAGE
+              value: "hello from service-a (dc2)"
+            - name: LISTEN_ADDR
+              value: "0.0.0.0:9090"
+            - name: LOG_LEVEL
+              value: "debug"
+            - name: HTTP_CLIENT_APPEND_REQUEST
+              value: "true"
+          ports:
+            - containerPort: 9090
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: service-b
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: service-b
+  labels:
+    app: service-b
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: service-b
+  template:
+    metadata:
+      labels:
+        app: service-b
+      annotations:
+        consul.hashicorp.com/connect-inject: "true"
+        consul.hashicorp.com/transparent-proxy: "true"
+        consul.hashicorp.com/consul-dns: "true"
+    spec:
+      serviceAccountName: service-b
+      containers:
+        - name: service-b
+          image: nicholasjackson/fake-service:v0.26.2
+          env:
+            - name: NAME
+              value: service-b
+            - name: MESSAGE
+              value: "hello from service-b (dc2)"
+            - name: LISTEN_ADDR
+              value: "0.0.0.0:9090"
+            - name: LOG_LEVEL
+              value: "debug"
+            - name: HTTP_CLIENT_APPEND_REQUEST
+              value: "true"
+          ports:
+            - containerPort: 9090
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: service-c
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: service-c
+  labels:
+    app: service-c
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: service-c
+  template:
+    metadata:
+      labels:
+        app: service-c
+      annotations:
+        consul.hashicorp.com/connect-inject: "true"
+        consul.hashicorp.com/transparent-proxy: "true"
+        consul.hashicorp.com/consul-dns: "true"
+    spec:
+      serviceAccountName: service-c
+      containers:
+        - name: service-c
+          image: nicholasjackson/fake-service:v0.26.2
+          env:
+            - name: NAME
+              value: service-c
+            - name: MESSAGE
+              value: "hello from service-c (dc2)"
+            - name: LISTEN_ADDR
+              value: "0.0.0.0:9090"
+            - name: LOG_LEVEL
+              value: "debug"
+            - name: HTTP_CLIENT_APPEND_REQUEST
+              value: "true"
+            - name: UPSTREAM_URIS
+              value: "http://service-d2.virtual.consul:9090"
+          ports:
+            - containerPort: 9090
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: service-d1
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: service-d1
+  labels:
+    app: service-d1
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: service-d1
+  template:
+    metadata:
+      labels:
+        app: service-d1
+      annotations:
+        consul.hashicorp.com/connect-inject: "true"
+        consul.hashicorp.com/transparent-proxy: "true"
+        consul.hashicorp.com/consul-dns: "true"
+    spec:
+      serviceAccountName: service-d1
+      containers:
+        - name: service-d1
+          image: nicholasjackson/fake-service:v0.26.2
+          env:
+            - name: NAME
+              value: service-d1
+            - name: MESSAGE
+              value: "hello from service-d1 (dc2)"
+            - name: LISTEN_ADDR
+              value: "0.0.0.0:9090"
+            - name: LOG_LEVEL
+              value: "debug"
+            - name: HTTP_CLIENT_APPEND_REQUEST
+              value: "true"
+          ports:
+            - containerPort: 9090
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: service-d2
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: service-d2
+  labels:
+    app: service-d2
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: service-d2
+  template:
+    metadata:
+      labels:
+        app: service-d2
+      annotations:
+        consul.hashicorp.com/connect-inject: "true"
+        consul.hashicorp.com/transparent-proxy: "true"
+        consul.hashicorp.com/consul-dns: "true"
+    spec:
+      serviceAccountName: service-d2
+      containers:
+        - name: service-d2
+          image: nicholasjackson/fake-service:v0.26.2
+          env:
+            - name: NAME
+              value: service-d2
+            - name: MESSAGE
+              value: "hello from service-d2 (dc2)"
+            - name: LISTEN_ADDR
+              value: "0.0.0.0:9090"
+            - name: LOG_LEVEL
+              value: "debug"
+            - name: HTTP_CLIENT_APPEND_REQUEST
+              value: "true"
+          ports:
+            - containerPort: 9090
+---
+# ── Kubernetes Services ───────────────────────────────────────────────────────
+apiVersion: v1
+kind: Service
+metadata:
+  name: service-a
+  labels:
+    app: service-a
+spec:
+  selector:
+    app: service-a
+  ports:
+    - name: http
+      port: 9090
+      targetPort: 9090
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: service-b
+  labels:
+    app: service-b
+spec:
+  selector:
+    app: service-b
+  ports:
+    - name: http
+      port: 9090
+      targetPort: 9090
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: service-c
+  labels:
+    app: service-c
+spec:
+  selector:
+    app: service-c
+  ports:
+    - name: http
+      port: 9090
+      targetPort: 9090
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: service-d1
+  labels:
+    app: service-d1
+spec:
+  selector:
+    app: service-d1
+  ports:
+    - name: http
+      port: 9090
+      targetPort: 9090
+      protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: service-d2
+  labels:
+    app: service-d2
+spec:
+  selector:
+    app: service-d2
+  ports:
+    - name: http
+      port: 9090
+      targetPort: 9090
+      protocol: TCP

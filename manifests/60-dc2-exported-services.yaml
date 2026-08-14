@@ -1,0 +1,256 @@
+# 60-dc2-exported-services.yaml
+# Applied to the DC2 kind cluster (kind-dc2) by up.sh.
+#
+# ExportedServices: advertise all backend services from dc2 → dc1 peer
+#   so the DC1 ServiceResolvers can reach them on failover.
+#
+# ServiceIntentions: allow traffic arriving from the dc1 peer to reach
+#   each service in dc2.  Without these intentions the mesh gateway drops
+#   the cross-peer connection.
+#
+# ServiceDefaults: set protocol and meshGateway.mode=local for every
+#   exported service so the L7 discovery chain stays intact end-to-end.
+#
+# ── ExportedServices ─────────────────────────────────────────────────────────
+---
+apiVersion: consul.hashicorp.com/v1alpha1
+kind: ExportedServices
+metadata:
+  name: default
+  namespace: default
+spec:
+  services:
+    - name: service-a
+      consumers:
+        - peer: peer-dc1
+    - name: service-b
+      consumers:
+        - peer: peer-dc1
+    - name: service-c
+      consumers:
+        - peer: peer-dc1
+    - name: service-d1
+      consumers:
+        - peer: peer-dc1
+    - name: service-d2
+      consumers:
+        - peer: peer-dc1
+    - name: route-decider
+      consumers:
+        - peer: peer-dc1
+    - name: ext-proc-grpc
+      consumers:
+        - peer: peer-dc1
+
+# ── ServiceDefaults (DC2) ─────────────────────────────────────────────────────
+---
+apiVersion: consul.hashicorp.com/v1alpha1
+kind: ServiceDefaults
+metadata:
+  name: service-a
+  namespace: default
+spec:
+  protocol: http
+  meshGateway:
+    mode: local
+---
+apiVersion: consul.hashicorp.com/v1alpha1
+kind: ServiceDefaults
+metadata:
+  name: service-b
+  namespace: default
+spec:
+  protocol: http
+  meshGateway:
+    mode: local
+---
+apiVersion: consul.hashicorp.com/v1alpha1
+kind: ServiceDefaults
+metadata:
+  name: service-c
+  namespace: default
+spec:
+  protocol: http
+  meshGateway:
+    mode: local
+  # dc2 service-c also runs the ext-proc outbound extension so traffic
+  # routed here on failover still benefits from dynamic cell selection.
+  envoyExtensions:
+    - name: builtin/ext-proc
+      required: true
+      arguments:
+        proxyType: connect-proxy
+        listenerType: outbound
+        config:
+          grpcService:
+            target:
+              service:
+                name: ext-proc-grpc
+---
+apiVersion: consul.hashicorp.com/v1alpha1
+kind: ServiceDefaults
+metadata:
+  name: service-d1
+  namespace: default
+spec:
+  protocol: http
+  meshGateway:
+    mode: local
+---
+apiVersion: consul.hashicorp.com/v1alpha1
+kind: ServiceDefaults
+metadata:
+  name: service-d2
+  namespace: default
+spec:
+  protocol: http
+  meshGateway:
+    mode: local
+---
+apiVersion: consul.hashicorp.com/v1alpha1
+kind: ServiceDefaults
+metadata:
+  name: route-decider
+  namespace: default
+spec:
+  protocol: http
+  meshGateway:
+    mode: local
+---
+apiVersion: consul.hashicorp.com/v1alpha1
+kind: ServiceDefaults
+metadata:
+  name: ext-proc-grpc
+  namespace: default
+spec:
+  protocol: grpc
+  meshGateway:
+    mode: local
+
+# ── ServiceRouter (DC2) — same x-cell routing as DC1 ─────────────────────────
+---
+apiVersion: consul.hashicorp.com/v1alpha1
+kind: ServiceRouter
+metadata:
+  name: service-d2
+  namespace: default
+spec:
+  routes:
+    - match:
+        http:
+          header:
+            - name: x-cell
+              exact: C
+      destination:
+        service: service-d1
+    - match:
+        http:
+          header:
+            - name: x-cell
+              exact: D
+      destination:
+        service: service-d2
+
+# ── ServiceIntentions (DC2) — allow traffic from dc1 peer ────────────────────
+---
+apiVersion: consul.hashicorp.com/v1alpha1
+kind: ServiceIntentions
+metadata:
+  name: service-a-dc2-intentions
+  namespace: default
+spec:
+  destination:
+    name: service-a
+  sources:
+    - name: api-gateway
+      peer: peer-dc1
+      action: allow
+---
+apiVersion: consul.hashicorp.com/v1alpha1
+kind: ServiceIntentions
+metadata:
+  name: service-b-dc2-intentions
+  namespace: default
+spec:
+  destination:
+    name: service-b
+  sources:
+    - name: api-gateway
+      peer: peer-dc1
+      action: allow
+---
+apiVersion: consul.hashicorp.com/v1alpha1
+kind: ServiceIntentions
+metadata:
+  name: service-c-dc2-intentions
+  namespace: default
+spec:
+  destination:
+    name: service-c
+  sources:
+    - name: api-gateway
+      peer: peer-dc1
+      action: allow
+---
+apiVersion: consul.hashicorp.com/v1alpha1
+kind: ServiceIntentions
+metadata:
+  name: service-d1-dc2-intentions
+  namespace: default
+spec:
+  destination:
+    name: service-d1
+  sources:
+    - name: service-c
+      action: allow
+    - name: service-c
+      peer: peer-dc1
+      action: allow
+---
+apiVersion: consul.hashicorp.com/v1alpha1
+kind: ServiceIntentions
+metadata:
+  name: service-d2-dc2-intentions
+  namespace: default
+spec:
+  destination:
+    name: service-d2
+  sources:
+    - name: service-c
+      action: allow
+    - name: service-c
+      peer: peer-dc1
+      action: allow
+---
+apiVersion: consul.hashicorp.com/v1alpha1
+kind: ServiceIntentions
+metadata:
+  name: route-decider-dc2-intentions
+  namespace: default
+spec:
+  destination:
+    name: route-decider
+  sources:
+    - name: ext-proc-grpc
+      action: allow
+    - name: ext-proc-grpc
+      peer: peer-dc1
+      action: allow
+---
+apiVersion: consul.hashicorp.com/v1alpha1
+kind: ServiceIntentions
+metadata:
+  name: ext-proc-grpc-dc2-intentions
+  namespace: default
+spec:
+  destination:
+    name: ext-proc-grpc
+  sources:
+    - name: api-gateway
+      peer: peer-dc1
+      action: allow
+    - name: service-c
+      action: allow
+    - name: service-c
+      peer: peer-dc1
+      action: allow
