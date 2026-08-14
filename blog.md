@@ -50,32 +50,46 @@ This demo implements a full cell-redirection system on Kubernetes using:
 
 ## Architecture Overview
 
-```
-                         ┌──────────────────────────────────┐
-              curl ──►   │     API Gateway (Envoy)           │
-                         │  builtin/ext-proc (gRPC filter)   │
-                         └──────────────┬───────────────────┘
-                                        │ gRPC stream (ExternalProcessor)
-                                        ▼
-                         ┌──────────────────────────────────┐
-                         │   cell-router-sidecar (ext-proc)  │──► gls-service /get-cell
-                         └──────────────────────────────────┘      returns {"x-cell":"A"|"B"}
-                                        │
-                            sets x-cell header + clears route cache
-                                        │
-                           ┌────────────┴────────────┐
-                       x-cell=A                  x-cell=B
-                           │                         │
-                      cell-alpha               cell-beta
-                           │
-                    (no match → catch-all)
-                           │
-                   cell-gamma-hub    (builtin/ext-proc, gRPC on outbound sidecar)
-                           │ UPSTREAM: cell-delta-secondary:9090
-                           ▼
-               ServiceRouter/cell-delta-secondary
-                x-cell=C ──► cell-delta-primary
-                x-cell=D ──► cell-delta-secondary (default)
+```mermaid
+flowchart TD
+    Client["👤 Client"]
+    GW["🌐 API Gateway<br/>(Envoy)<br/>builtin/ext-proc gRPC filter"]
+    CRS["⚙️ cell-router-sidecar<br/>(ext-proc)"]
+    GLS["🧠 gls-service<br/>GET /get-cell"]
+    
+    CA["🏠 cell-alpha"]
+    CB["🏠 cell-beta"]
+    CGH["🏠 cell-gamma-hub<br/>(builtin/ext-proc on outbound)"]
+    
+    SR["🔀 ServiceRouter<br/>cell-delta-secondary"]
+    CDP["🏠 cell-delta-primary"]
+    CDS["🏠 cell-delta-secondary<br/>(default)"]
+    
+    Client -->|"curl /"| GW
+    GW -. "① gRPC stream<br/>ProcessingRequest" .-> CRS
+    CRS -->|"② GET /get-cell"| GLS
+    GLS -->|"③ x-cell: A or B"| CRS
+    CRS -. "④ set x-cell header<br/>clear_route_cache=true" .-> GW
+    
+    GW -->|"x-cell=A"| CA
+    GW -->|"x-cell=B"| CB
+    GW -->|"catch-all /"| CGH
+    
+    CGH -. "outbound ext-proc" .-> CRS
+    CGH -->|"UPSTREAM: cell-delta-secondary"| SR
+    
+    SR -->|"x-cell=C"| CDP
+    SR -->|"x-cell=D (default)"| CDS
+    
+    style GW fill:#1a5276,color:#fff
+    style CRS fill:#117a65,color:#fff
+    style GLS fill:#6c3483,color:#fff
+    style SR fill:#2d3436,color:#fff
+    style CA fill:#1a5276,color:#fff
+    style CB fill:#1a5276,color:#fff
+    style CGH fill:#784212,color:#fff
+    style CDP fill:#1a5276,color:#fff
+    style CDS fill:#1a5276,color:#fff
 ```
 
 ---
