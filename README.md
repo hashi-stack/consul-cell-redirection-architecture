@@ -509,4 +509,4 @@ This architecture demonstrates how a production-grade cell-redirection system ca
 - **Consul `ServiceResolver`** provides transparent cross-datacenter failover with no application code changes
 - **`gls-service`** (the Global Location Service) is the single source of truth for tenant-to-cell assignments, changeable at runtime via a single API call
 
-The result: zero-downtime cell migrations, sub-second traffic switching, and multi-datacenter failover — all controlled by a single `POST /set` call to the mapping service.
+The result: zero-downtime cell migrations, sub-second traffic switching, and multi-datacenter failover — all controlled by a multi-region `gls-service` service.
