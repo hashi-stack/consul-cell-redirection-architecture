@@ -1,4 +1,5 @@
-# Fail-Safe and Resilient Cell Redirection Architecture with Consul Service Mesh
+# 🎯 Cell Redirection Architecture
+## A Fail-Safe and Resilient Implementation with Consul Service Mesh
 
 > **Based on:** [`Github.com repo`](https://github.com/hashi-stack/consul-cell-redirection-architecture) — a working Kubernetes (kind) demo running Consul service mesh + API Gateway with Envoy's **external processing (`ext-proc`)** filter for runtime cell routing and cross-datacenter failover.
 
