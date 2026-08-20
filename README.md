@@ -470,6 +470,120 @@ A failure in Cell Alpha does not affect Cell Beta or the Delta tier. The `Servic
 
 ---
 
+## Prerequisites
+
+Before running the demo, ensure the following tools and assets are available on your workstation.
+
+### Required Tools
+
+| Tool | Purpose | Install |
+|------|---------|---------|
+| [`kind`](https://kind.sigs.k8s.io/) | Runs a multi-node Kubernetes cluster inside Docker containers — used to create the local `dc1` / `dc2` clusters | `brew install kind` or [kind releases](https://github.com/kubernetes-sigs/kind/releases) |
+| `kubectl` | Kubernetes CLI | `brew install kubectl` |
+| `helm` | Installs `consul-k8s` chart | `brew install helm` |
+| `docker` | Container runtime required by `kind` | [Docker Desktop](https://www.docker.com/products/docker-desktop/) |
+| `consul` | Consul CLI (for intention management, kv ops) | `brew install consul` |
+
+> **`kind` note:** The demo's [`up.sh`](./up.sh) script calls `kind create cluster` to spin up two local Kubernetes clusters (`dc1`, `dc2`) that simulate separate datacenters. Each cluster runs its own Consul control plane and Envoy sidecars. No cloud account is required — everything runs on your laptop inside Docker.
+
+---
+
+### Consul License File
+
+HashiCorp Consul Enterprise features used in this demo (e.g., **admin partitions**, **network segments**, and **cross-datacenter failover via Mesh Gateways**) require a valid Consul Enterprise license.
+
+Place your license file at **`config/consul-enterprise-license.hclic`** before running `up.sh` — this is the exact path the setup script reads:
+
+```bash
+# Copy your license file into the required location
+cp /path/to/your/consul.hclic config/consul-enterprise-license.hclic
+```
+
+The script loads it automatically. If you prefer to pass it as an environment variable instead:
+
+```bash
+# Alternative: export the raw license string
+export CONSUL_LICENSE="<your-consul-enterprise-license-string>"
+```
+
+> **How to obtain a license:** Contact your HashiCorp account team or start a [free Consul Enterprise trial](https://www.hashicorp.com/products/consul/trial). Without a valid license the Consul pods will enter `CrashLoopBackOff` after the 6-hour grace period.
+
+---
+
+### Implementing `ext-proc` in Languages Other Than Go
+
+The `ext-proc-grpc` service in this repo is written in **Go**, but Envoy's External Processing filter is a standard **gRPC** protocol — any language with gRPC support can implement it.
+
+The canonical Protobuf definition lives in the Envoy API repository:
+
+```
+https://github.com/envoyproxy/envoy/tree/743baafef00f4f8d5fc234e6ee5cb7ed87cba148/api/envoy/extensions/filters/http/ext_proc/v3
+```
+
+Key `.proto` files:
+
+| File | Description |
+|------|-------------|
+| [`external_processor.proto`](https://github.com/envoyproxy/envoy/blob/743baafef00f4f8d5fc234e6ee5cb7ed87cba148/api/envoy/extensions/filters/http/ext_proc/v3/external_processor.proto) | Defines the `ExternalProcessor` gRPC service, `ProcessingRequest`, and `ProcessingResponse` messages |
+| [`processing_mode.proto`](https://github.com/envoyproxy/envoy/blob/743baafef00f4f8d5fc234e6ee5cb7ed87cba148/api/envoy/extensions/filters/http/ext_proc/v3/processing_mode.proto) | Controls which phases (request headers, body, trailers) are sent to the processor |
+
+#### Java Example
+
+Generate the Java stubs from the `.proto` files using the [Envoy data-plane API Maven artifacts](https://central.sonatype.com/artifact/io.envoyproxy.controlplane/api) or compile them directly with `protoc`:
+
+```bash
+# 1. Clone the Envoy API repo (sparse checkout for speed)
+git clone --depth 1 --filter=blob:none --sparse \
+  https://github.com/envoyproxy/envoy.git envoy-api
+cd envoy-api
+git sparse-checkout set api/envoy/extensions/filters/http/ext_proc/v3
+
+# 2. Generate Java gRPC stubs
+protoc \
+  --proto_path=api \
+  --java_out=src/main/java \
+  --grpc-java_out=src/main/java \
+  api/envoy/extensions/filters/http/ext_proc/v3/external_processor.proto \
+  api/envoy/extensions/filters/http/ext_proc/v3/processing_mode.proto
+```
+
+Then implement the streaming RPC in Java:
+
+```java
+// Java — skeleton ExternalProcessor server
+import io.envoyproxy.envoy.extensions.filters.http.ext_proc.v3.ExternalProcessorGrpc;
+import io.envoyproxy.envoy.extensions.filters.http.ext_proc.v3.ProcessingRequest;
+import io.envoyproxy.envoy.extensions.filters.http.ext_proc.v3.ProcessingResponse;
+import io.grpc.stub.StreamObserver;
+
+public class ExtProcService
+    extends ExternalProcessorGrpc.ExternalProcessorImplBase {
+
+  @Override
+  public StreamObserver<ProcessingRequest> process(
+      StreamObserver<ProcessingResponse> responseObserver) {
+
+    return new StreamObserver<ProcessingRequest>() {
+      @Override
+      public void onNext(ProcessingRequest request) {
+        // Inspect request headers and inject x-cell
+        ProcessingResponse response = ProcessingResponse.newBuilder()
+            // ... set header mutations and clear_route_cache = true
+            .build();
+        responseObserver.onNext(response);
+      }
+
+      @Override public void onError(Throwable t) { /* handle */ }
+      @Override public void onCompleted() { responseObserver.onCompleted(); }
+    };
+  }
+}
+```
+
+> The same `.proto` files can be used with **Python** (`grpcio-tools`), **TypeScript** (`@grpc/proto-loader`), **Rust** (`tonic`), or any other gRPC-capable language following the same pattern.
+
+---
+
 ## Running the Demo
 
 ```bash
