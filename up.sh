@@ -221,7 +221,7 @@ install_consul() {
     --set "externalServers.k8sAuthMethodHost=https://${KIND_API_IP}:6443"
     --create-namespace
     --namespace consul
-    --version "2.0.2"
+    --version "2.0.3"
     "--set-string=externalServers.hosts[0]=${external_ip}"
   )
 

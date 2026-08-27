@@ -8,9 +8,9 @@ global:
   enabled: true
   name: consul
   datacenter: dc1
-  image: "docker.mirror.hashicorp.services/hashicorppreview/consul:2.1.0-dev"
-  imageK8S: &consulK8sControlPlaneImage "docker.mirror.hashicorp.services/hashicorppreview/consul-k8s-control-plane:2.1.0-dev"
-  imageConsulDataplane: "hashicorp/consul-dataplane:2.0.0"
+  image: "hashicorp/consul:2.0.3"
+  imageK8S: &consulK8sControlPlaneImage "hashicorp/consul-k8s-control-plane:2.0.3"
+  imageConsulDataplane: "hashicorp/consul-dataplane:2.0.3"
   logLevel: "trace"
   tls:
     enabled: false
